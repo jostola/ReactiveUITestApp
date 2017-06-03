@@ -9,8 +9,11 @@ using System.Reactive.Linq;
 namespace ReactiveUITestApp {
     public class MainWindowViewModel : ReactiveObject {
         public MainWindowViewModel() {
+            var canSearch = this.WhenAnyValue(vm => vm.TheText)
+                .Select(text => !string.IsNullOrWhiteSpace(text));
+
             this.Search = ReactiveCommand.CreateFromTask<string, IRestResponse<RepositoryList>>(
-                searchTerm => new GithubRestClient().SearchRepositories(searchTerm, null, null));
+                searchTerm => new GithubRestClient().SearchRepositories(searchTerm), canSearch);
 
             this.WhenAnyValue(vm => vm.TheText)
                 .Throttle(TimeSpan.FromMilliseconds(500), RxApp.MainThreadScheduler)
@@ -20,20 +23,24 @@ namespace ReactiveUITestApp {
                 .Select(response => response?.Data?.items ?? new List<Repository>())
                 .ToProperty(this, vm => vm.SearchResults);
 
-            var searchErrors = 
+            var searchErrors =
                 Observable.Merge(
-                    this.Search.Select(response => (response?.Data?.items != null)),
-                    this.Search.ThrownExceptions.Select(_ => false)
-                ).Select(isResponseGood => isResponseGood ? (string)null : "An error has occured.");
-
-            var searchActivity = this.Search.IsExecuting
-                .Select(isExecuting => isExecuting ? "Wait one moment." : (string)null);
+                    this.Search.Select(response => (response?.Data?.items == null)),
+                    this.Search.ThrownExceptions.Select(_ => true)
+                ).StartWith(false);
 
             this._isSearching = this.Search.IsExecuting
                 .ToProperty(this, vm => vm.IsSearching);
 
-            this._searchEventUserInformation = Observable.CombineLatest(searchErrors, searchActivity)
-                .Select(a => a.FirstOrDefault(s => (s != null)))
+            this._searchEventUserInformation =
+                Observable.CombineLatest(searchErrors, this.Search.IsExecuting, (hasErrors, isExecuting) => {
+                    if (hasErrors) {
+                        return "An error has occured.";
+                    } else if (isExecuting) {
+                        return "Wait one moment.";
+                    }
+                    return (string)null;
+                })
                 .ToProperty(this, vm => vm.SearchEventUserInformation);
         }
 

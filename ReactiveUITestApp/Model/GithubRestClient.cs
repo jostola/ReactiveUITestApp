@@ -6,11 +6,9 @@ namespace ReactiveUITestApp.Model {
         private RestClient Client { get; }
             = new RestClient(@"https://api.github.com/");
 
-        public Task<IRestResponse<RepositoryList>> SearchRepositories(string searchQuery, string sortByProperty, string orderByProperty) {
+        public Task<IRestResponse<RepositoryList>> SearchRepositories(string query) {
             var request = new RestRequest(@"search/repositories", Method.GET);
-            request.AddQueryParameter("q", searchQuery);
-            request.AddQueryParameter("sort", sortByProperty);
-            request.AddQueryParameter("order", orderByProperty);
+            request.AddQueryParameter("q", query);
             return Client.ExecuteTaskAsync<RepositoryList>(request);
         }
     }

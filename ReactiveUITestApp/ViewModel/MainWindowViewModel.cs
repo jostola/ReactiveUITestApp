@@ -7,7 +7,6 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Net;
 using System.Reactive.Linq;
-using System.Threading.Tasks;
 
 namespace ReactiveUITestApp {
     public class MainWindowViewModel : ReactiveObject {
@@ -15,24 +14,24 @@ namespace ReactiveUITestApp {
             var canSearch = this.WhenAnyValue(vm => vm.TheText)
                 .Select(text => !string.IsNullOrWhiteSpace(text));
 
-            this.Search = ReactiveCommand.CreateFromTask<string, IRestResponse<RepositoryList>>(
-                searchTerm => SearchImpl(searchTerm), canSearch);
+            this.Search = ReactiveCommand.CreateFromObservable<string, IRestResponse<RepositoryList>>(
+                 searchTerm => SearchImpl(searchTerm), canSearch);
 
             this.WhenAnyValue(vm => vm.TheText)
                 .Throttle(TimeSpan.FromMilliseconds(500), RxApp.MainThreadScheduler)
-                .DistinctUntilChanged()
                 .InvokeCommand(this, vm => vm.Search);
 
             this._searchResults = Observable.Merge(
                     this.Search.Select(response => response.Data.items.Select(repo => new SearchResultItemViewModel(repo.name, repo.size.ToString(), repo.score.ToString()))),
                     this.Search.ThrownExceptions.Select(_ => Enumerable.Empty<SearchResultItemViewModel>())
                 )
-                .Retry()
                 .ToProperty(this, vm => vm.SearchResults);
 
             this._searchEventUserInformation =
                     Observable.CombineLatest(
-                        this.Search.ThrownExceptions.StartWith((Exception)null),
+                        Observable.Merge(
+                            this.Search.ThrownExceptions.StartWith((Exception)null),
+                            this.Search.IsExecuting.Where(isExecuting => isExecuting).Select(_ => (Exception)null)),
                         this.Search.IsExecuting.StartWith(false),
                         (exception, isExecuting) => {
                             if (exception != null) {
@@ -48,15 +47,15 @@ namespace ReactiveUITestApp {
                 .ToProperty(this, vm => vm.SearchEventUserInformation);
         }
 
-        private async Task<IRestResponse<RepositoryList>> SearchImpl(string searchTerm) {
-            var result = await new GithubRestClient().SearchRepositories(searchTerm);
-
-            if (result.StatusCode != HttpStatusCode.OK) {
-                throw new Exception("GitHub API request failed. Status description: " + result.StatusDescription);
-            }
-
-            return result;
-        }
+        private IObservable<IRestResponse<RepositoryList>> SearchImpl(string searchTerm)
+            => Observable.FromAsync(() => new GithubRestClient().SearchRepositories(searchTerm))
+                .Select(result => {
+                    if (result.StatusCode == HttpStatusCode.OK) {
+                        return result;
+                    } else {
+                       throw new Exception("GitHub API request failed. Status description: " + result.StatusDescription);
+                    }
+                });
 
         public ReactiveCommand<string, IRestResponse<RepositoryList>> Search { get; }
 

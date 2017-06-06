@@ -24,12 +24,14 @@ namespace ReactiveUITestApp {
             this._searchResults =
                 Observable.Merge(
                     this.Search.Select(data => data.items.Select(ConvertToViewModel)),
-                    this.Search.ThrownExceptions.Select(_ => Enumerable.Empty<SearchResultItemViewModel>()))
+                    this.Search.ThrownExceptions.Select(_ => Enumerable.Empty<SearchResultItemViewModel>()),
+                    this.Search.IsExecuting.Where(isExecuting => isExecuting).Select(_ => Enumerable.Empty<SearchResultItemViewModel>()),
+                    canSearch.Where(can => !can).Select(_ => Enumerable.Empty<SearchResultItemViewModel>()))
                 .ToProperty(this, vm => vm.SearchResults);
-
 
             this._searchEventUserInformation =
                 Observable.Merge(
+                    canSearch.DistinctUntilChanged().Select(_canSearch => _canSearch ? (string)null : "Please input something."),
                     this.Search.IsExecuting.Where(isExecuting => isExecuting).Select(_ => "Wait one moment."),
                     this.Search.IsExecuting.Where(isExecuting => !isExecuting).PublishLast(
                         _ => Observable.Merge(

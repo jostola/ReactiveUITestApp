@@ -27,23 +27,15 @@ namespace ReactiveUITestApp {
                 )
                 .ToProperty(this, vm => vm.SearchResults);
 
+
             this._searchEventUserInformation =
-                    Observable.CombineLatest(
-                        Observable.Merge(
-                            this.Search.ThrownExceptions.StartWith((Exception)null),
-                            this.Search.IsExecuting.Where(isExecuting => isExecuting).Select(_ => (Exception)null)),
-                        this.Search.IsExecuting.StartWith(false),
-                        (exception, isExecuting) => {
-                            if (exception != null) {
-                                return exception.Message;
-                            } else if (isExecuting) {
-                                return "Wait one moment.";
-                            } else if (!this.SearchResults?.Any() ?? false) {
-                                return "No results.";
-                            } else {
-                                return (string)null;
-                            }
-                        })
+                    Observable.Merge(
+                        this.Search.IsExecuting.Where(isExecuting => isExecuting).Select(_ => "Wait one moment."),
+                        this.Search.IsExecuting.Where(isExecuting => !isExecuting).PublishLast(
+                            _ => Observable.Merge(
+                                this.Search.ThrownExceptions.Select(exception => exception.Message),
+                                this.WhenAnyValue(vm => vm.SearchResults).Select(results => results != null && results.Any())
+                                    .Select(hasResults => hasResults ? (string)null : "No results."))))
                 .ToProperty(this, vm => vm.SearchEventUserInformation);
         }
 
@@ -53,7 +45,7 @@ namespace ReactiveUITestApp {
                     if (result.StatusCode == HttpStatusCode.OK) {
                         return result;
                     } else {
-                       throw new Exception("GitHub API request failed. Status description: " + result.StatusDescription);
+                        throw new Exception("GitHub API request failed. Status description: " + result.StatusDescription);
                     }
                 });
 

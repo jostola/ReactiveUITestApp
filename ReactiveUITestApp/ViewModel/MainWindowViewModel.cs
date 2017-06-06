@@ -14,42 +14,41 @@ namespace ReactiveUITestApp {
             var canSearch = this.WhenAnyValue(vm => vm.TheText)
                 .Select(text => !string.IsNullOrWhiteSpace(text));
 
-            this.Search = ReactiveCommand.CreateFromObservable<string, IRestResponse<RepositoryList>>(
+            this.Search = ReactiveCommand.CreateFromObservable<string, RepositoryList>(
                  searchTerm => SearchImpl(searchTerm), canSearch);
 
             this.WhenAnyValue(vm => vm.TheText)
                 .Throttle(TimeSpan.FromMilliseconds(500), RxApp.MainThreadScheduler)
                 .InvokeCommand(this, vm => vm.Search);
 
-            this._searchResults = Observable.Merge(
-                    this.Search.Select(response => response.Data.items.Select(repo => new SearchResultItemViewModel(repo.name, repo.size.ToString(), repo.score.ToString()))),
-                    this.Search.ThrownExceptions.Select(_ => Enumerable.Empty<SearchResultItemViewModel>())
-                )
+            this._searchResults =
+                Observable.Merge(
+                    this.Search.Select(data => data.items.Select(ConvertToViewModel)),
+                    this.Search.ThrownExceptions.Select(_ => Enumerable.Empty<SearchResultItemViewModel>()))
                 .ToProperty(this, vm => vm.SearchResults);
 
 
             this._searchEventUserInformation =
-                    Observable.Merge(
-                        this.Search.IsExecuting.Where(isExecuting => isExecuting).Select(_ => "Wait one moment."),
-                        this.Search.IsExecuting.Where(isExecuting => !isExecuting).PublishLast(
-                            _ => Observable.Merge(
-                                this.Search.ThrownExceptions.Select(exception => exception.Message),
-                                this.WhenAnyValue(vm => vm.SearchResults).Select(results => results != null && results.Any())
-                                    .Select(hasResults => hasResults ? (string)null : "No results."))))
+                Observable.Merge(
+                    this.Search.IsExecuting.Where(isExecuting => isExecuting).Select(_ => "Wait one moment."),
+                    this.Search.IsExecuting.Where(isExecuting => !isExecuting).PublishLast(
+                        _ => Observable.Merge(
+                            this.Search.ThrownExceptions.Select(exception => exception.Message),
+                            this.WhenAnyValue(vm => vm.SearchResults).Select(results => results != null && results.Any())
+                                .Select(hasResults => hasResults ? (string)null : "No results."))))
                 .ToProperty(this, vm => vm.SearchEventUserInformation);
         }
 
-        private IObservable<IRestResponse<RepositoryList>> SearchImpl(string searchTerm)
-            => Observable.FromAsync(() => new GithubRestClient().SearchRepositories(searchTerm))
-                .Select(result => {
-                    if (result.StatusCode == HttpStatusCode.OK) {
-                        return result;
-                    } else {
-                        throw new Exception("GitHub API request failed. Status description: " + result.StatusDescription);
-                    }
-                });
+        private SearchResultItemViewModel ConvertToViewModel(Repository repo)
+            => new SearchResultItemViewModel(repo.name, repo.size.ToString(), repo.score.ToString());
 
-        public ReactiveCommand<string, IRestResponse<RepositoryList>> Search { get; }
+        private IObservable<RepositoryList> SearchImpl(string searchTerm)
+            => Observable.FromAsync(() => new GithubRestClient().SearchRepositories(searchTerm)).Select(UnwrapResponse);
+
+        private static T UnwrapResponse<T>(IRestResponse<T> response)
+            => response.StatusCode == HttpStatusCode.OK ? response.Data : throw new Exception($"Bad response: {response.StatusDescription}");
+
+        public ReactiveCommand<string, RepositoryList> Search { get; }
 
         private readonly ObservableAsPropertyHelper<IEnumerable<SearchResultItemViewModel>> _searchResults;
         public IEnumerable<SearchResultItemViewModel> SearchResults => _searchResults.Value;

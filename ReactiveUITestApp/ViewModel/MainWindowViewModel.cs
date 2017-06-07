@@ -16,23 +16,24 @@ namespace ReactiveUITestApp {
                 .Select(text => !string.IsNullOrWhiteSpace(text));
 
             this.Search = ReactiveCommand.CreateFromObservable<string, RepositoryList>(
-                 searchTerm => SearchImpl(searchTerm).TakeUntil(this.CancelCommand), canSearch);
+                 searchTerm => SearchImpl(searchTerm).TakeUntil(this.CancelSearch), canSearch);
 
-            this.CancelCommand = ReactiveCommand.Create(() => { }, this.Search.IsExecuting);
+            this.CancelSearch = ReactiveCommand.Create(() => { }, this.Search.IsExecuting);
 
-            var textChanges = this.WhenAnyValue(vm => vm.TheText)
-                .Throttle(TimeSpan.FromMilliseconds(500), RxApp.MainThreadScheduler);
+            this.WhenAnyValue(vm => vm.TheText)
+                .Select(_ => Unit.Default)
+                .InvokeCommand(this, vm => vm.CancelSearch);
 
-            textChanges.InvokeCommand(this, vm => vm.CancelCommand);
-            textChanges.InvokeCommand(this, vm => vm.Search);
+            this.WhenAnyValue(vm => vm.TheText)
+                .Throttle(TimeSpan.FromMilliseconds(500), RxApp.MainThreadScheduler)
+                .InvokeCommand(this, vm => vm.Search);
 
             this._searchResults =
                 Observable.Merge(
                     this.Search.Select(data => data.items.Select(ConvertToViewModel)),
                     Observable.Merge(
                         this.Search.ThrownExceptions.Select(_ => Unit.Default),
-                        this.Search.IsExecuting.Where(isExecuting => isExecuting).Select(_ => Unit.Default),
-                        canSearch.Where(can => !can).Select(_ => Unit.Default))
+                        this.WhenAnyValue(vm => vm.TheText).Select(_ => Unit.Default))
                         .Select(_ => Enumerable.Empty<SearchResultItemViewModel>()))
                 .ToProperty(this, vm => vm.SearchResults);
 
@@ -45,7 +46,7 @@ namespace ReactiveUITestApp {
                         _ => Observable.Merge(
                             this.Search.ThrownExceptions.Select(exception => exception.Message),
                             this.WhenAnyValue(vm => vm.SearchResults).Select(results => results != null && results.Any())
-                                .Where(hasResults => !hasResults).Select(__ => "No results."))))
+                                .Select(hasResults => hasResults ? null : "No results."))))
                 .ToProperty(this, vm => vm.SearchEventUserInformation);
         }
 
@@ -60,7 +61,7 @@ namespace ReactiveUITestApp {
 
         public ReactiveCommand<string, RepositoryList> Search { get; }
 
-        public ReactiveCommand<Unit, Unit> CancelCommand { get; }
+        public ReactiveCommand<Unit, Unit> CancelSearch { get; }
 
         private readonly ObservableAsPropertyHelper<IEnumerable<SearchResultItemViewModel>> _searchResults;
         public IEnumerable<SearchResultItemViewModel> SearchResults => _searchResults.Value;

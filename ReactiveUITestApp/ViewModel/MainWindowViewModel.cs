@@ -28,26 +28,24 @@ namespace ReactiveUITestApp {
                 .Throttle(TimeSpan.FromMilliseconds(500), RxApp.MainThreadScheduler)
                 .InvokeCommand(this, vm => vm.Search);
 
-            this._searchResults =
+            Observable.Merge(
+                this.Search.Select(data => data.items.Select(ConvertToViewModel)),
                 Observable.Merge(
-                    this.Search.Select(data => data.items.Select(ConvertToViewModel)),
-                    Observable.Merge(
-                        this.Search.ThrownExceptions.Select(_ => Unit.Default),
-                        this.WhenAnyValue(vm => vm.TheText).Select(_ => Unit.Default))
-                        .Select(_ => Enumerable.Empty<SearchResultItemViewModel>()))
-                .ToProperty(this, vm => vm.SearchResults);
+                    this.Search.ThrownExceptions.Select(_ => Unit.Default),
+                    this.WhenAnyValue(vm => vm.TheText).Select(_ => Unit.Default))
+                    .Select(_ => Enumerable.Empty<SearchResultItemViewModel>()))
+            .ToProperty(this, vm => vm.SearchResults, out _searchResults);
 
-            this._searchEventUserInformation =
-                Observable.Merge(
-                    this.WhenAnyValue(vm => vm.TheText).Select(_ => (string)null),
-                    canSearch.DistinctUntilChanged().Where(canExecute => !canExecute).Select(_ => "Please input something."),
-                    this.Search.IsExecuting.Where(isExecuting => isExecuting).Select(_ => "Wait one moment."),
-                    this.Search.IsExecuting.Where(isExecuting => !isExecuting).PublishLast(
-                        _ => Observable.Merge(
-                            this.Search.ThrownExceptions.Select(exception => exception.Message),
-                            this.WhenAnyValue(vm => vm.SearchResults).Select(results => results != null && results.Any())
-                                .Select(hasResults => hasResults ? null : "No results."))))
-                .ToProperty(this, vm => vm.SearchEventUserInformation);
+            Observable.Merge(
+                this.WhenAnyValue(vm => vm.TheText).Select(_ => (string)null),
+                canSearch.DistinctUntilChanged().Where(canExecute => !canExecute).Select(_ => "Please input something."),
+                this.Search.IsExecuting.Where(isExecuting => isExecuting).Select(_ => "Wait one moment."),
+                this.Search.IsExecuting.Where(isExecuting => !isExecuting).PublishLast(
+                    _ => Observable.Merge(
+                        this.Search.ThrownExceptions.Select(exception => exception.Message),
+                        this.WhenAnyValue(vm => vm.SearchResults).Select(results => results != null && results.Any())
+                            .Select(hasResults => hasResults ? null : "No results."))))
+            .ToProperty(this, vm => vm.SearchEventUserInformation, out _searchEventUserInformation);
         }
 
         private SearchResultItemViewModel ConvertToViewModel(Repository repo)
